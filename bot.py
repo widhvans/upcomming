@@ -312,7 +312,7 @@ def fetch_upcoming_movies(genres):
             if genre == 'bollywood':
                 tmdb_movies = movie_api.upcoming(region='IN')
                 for m in tmdb_movies:
-                    if m.original_language == 'hi':
+                    if m.original_language in ['hi', 'bn']:  # Include Bengali
                         movie_data = fetch_movie_details(m, genre)
                         if movie_data:
                             movies.append(movie_data)
@@ -352,7 +352,7 @@ def fetch_upcoming_movies(genres):
                         if movie_data:
                             movies.append(movie_data)
             elif genre == 'korean':
-                tmdb_shows = tv_api.on_the_air()  # Removed language parameter
+                tmdb_shows = tv_api.on_the_air()
                 for s in tmdb_shows:
                     if getattr(s, 'original_language', '') == 'ko':
                         tv_data = fetch_tv_details(s, genre)
@@ -406,7 +406,7 @@ def fetch_movie_details(movie, genre):
             return {}
         
         credits = getattr(details, 'credits', None)
-        cast Robbie Daymond', 'Ray Chase', 'Ben Diskin']) if credits and credits.cast else 'N/A'
+        cast = ', '.join([c['name'] for c in credits.cast[:3]]) if credits and credits.cast else 'N/A'
         director = next((c['name'] for c in credits.crew if c['job'] == 'Director'), 'N/A') if credits and credits.crew else 'N/A'
         languages = ', '.join([l['english_name'] for l in details.get('spoken_languages', [])]) if details.get('spoken_languages') else 'N/A'
         
