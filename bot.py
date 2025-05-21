@@ -81,7 +81,7 @@ async def start(update, context):
         await update.message.reply_photo(
             photo=config.WELCOME_IMAGE_URL,
             caption=(
-                "🎥 Movie Mastermind: Your ultimate movie & series guide! Get personalized upcoming releases, news, and more. 🎬🍿\n"
+                "Your ultimate guide to movies & series! Get personalized upcoming releases and news. 🎬🍿\n"
                 "Pick your genres to start!"
             ),
             reply_markup=reply_markup
@@ -161,6 +161,11 @@ async def confirm_selection(update, context):
         await query.message.reply_text(
             f"🎉 Locked in: {', '.join([GENRES[g].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', '') for g in context.user_data['selected_genres']])}\n"
             "Get upcoming releases with /upcoming! 🍿"
+        )
+        # Notify user of new genre selection
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"📢 You've selected new genres! You'll now receive updates for {', '.join([GENRES[g].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', '') for g in context.user_data['selected_genres']])}."
         )
         context.user_data['selected_genres'] = []
         return ConversationHandler.END
@@ -289,6 +294,7 @@ async def find_name(update, context):
         # Try TMDb first
         tmdb_data = None
         try:
+            await asyncio.sleep(0.25)  # Rate limit: 40 req/10s
             results = search_api.multi(query)
             if results:
                 result = results[0]
@@ -323,36 +329,52 @@ async def find_name(update, context):
         except Exception as e:
             logger.warning(f"TMDb failed for query '{query}': {e}")
         
-        # Fallback to OMDb if TMDb fails
-        if not tmdb_data:
-            try:
-                omdb_url = f"http://www.omdbapi.com/?t={query}&apikey={config.OMDB_API_KEY}"
-                response = requests.get(omdb_url, timeout=10)
-                omdb_data = response.json()
-                
-                if omdb_data.get('Response') == 'True':
-                    title = str(omdb_data.get('Title', 'Unknown')).strip()
-                    overview = re.sub(r'[^\x00-\x7F]+', ' ', str(omdb_data.get('Plot', 'No overview available'))).strip()
-                    if not overview:
-                        overview = 'No overview available'
-                    
-                    tmdb_data = {
-                        'title': title,
-                        'media_type': omdb_data.get('Type', 'Movie').capitalize(),
-                        'release_date': omdb_data.get('Released', 'TBA'),
-                        'overview': overview,
-                        'poster': omdb_data.get('Poster', 'https://via.placeholder.com/500'),
-                        'cast': omdb_data.get('Actors', 'N/A'),
-                        'director': omdb_data.get('Director', 'N/A'),
-                        'languages': omdb_data.get('Language', 'N/A')
-                    }
+        # Merge with OMDb data
+        omdb_data = None
+        try:
+            await asyncio.sleep(0.1)  # OMDb rate limit: 1000/day
+            omdb_url = f"http://www.omdbapi.com/?t={query}&apikey={config.OMDB_API_KEY}"
+            response = requests.get(omdb_url, timeout=10)
+            omdb_data = response.json()
+            
+            if omdb_data.get('Response') == 'True':
+                release_year = omdb_data.get('Year', 'N/A')
+                if release_year.isdigit() and int(release_year) < 2020:
+                    logger.warning(f"Skipping old OMDb release '{query}' ({release_year})")
+                    omdb_data = None
                 else:
-                    await update.message.reply_text(f"😔 No results for '{query}'.")
-                    return ConversationHandler.END
-            except Exception as e:
-                logger.error(f"OMDb failed for query '{query}': {e}")
-                await update.message.reply_text(f"😔 No results for '{query}'.")
-                return ConversationHandler.END
+                    omdb_data = {
+                        'title': str(omdb_data.get('Title', tmdb_data['title'] if tmdb_data else 'Unknown')).strip(),
+                        'media_type': omdb_data.get('Type', 'Movie').capitalize(),
+                        'release_date': omdb_data.get('Released', tmdb_data['release_date'] if tmdb_data else 'TBA'),
+                        'overview': re.sub(r'[^\x00-\x7F]+', ' ', str(omdb_data.get('Plot', tmdb_data['overview'] if tmdb_data else 'No overview available'))).strip(),
+                        'poster': omdb_data.get('Poster', tmdb_data['poster'] if tmdb_data else 'https://via.placeholder.com/500'),
+                        'cast': omdb_data.get('Actors', tmdb_data['cast'] if tmdb_data else 'N/A'),
+                        'director': omdb_data.get('Director', tmdb_data['director'] if tmdb_data else 'N/A'),
+                        'languages': omdb_data.get('Language', tmdb_data['languages'] if tmdb_data else 'N/A')
+                    }
+                    if not omdb_data['overview']:
+                        omdb_data['overview'] = 'No overview available'
+        except Exception as e:
+            logger.warning(f"OMDb failed for query '{query}': {e}")
+        
+        # Combine TMDb and OMDb data
+        if not tmdb_data and not omdb_data:
+            await update.message.reply_text(f"😔 No results for '{query}'.")
+            return ConversationHandler.END
+        
+        final_data = tmdb_data or omdb_data
+        if tmdb_data and omdb_data:
+            final_data = {
+                'title': tmdb_data['title'],
+                'media_type': tmdb_data['media_type'],
+                'release_date': omdb_data['release_date'] if omdb_data['release_date'] != 'TBA' else tmdb_data['release_date'],
+                'overview': omdb_data['overview'] if omdb_data['overview'] != 'No overview available' else tmdb_data['overview'],
+                'poster': tmdb_data['poster'],  # Prefer TMDb poster
+                'cast': omdb_data['cast'] if omdb_data['cast'] != 'N/A' else tmdb_data['cast'],
+                'director': omdb_data['director'] if omdb_data['director'] != 'N/A' else tmdb_data['director'],
+                'languages': tmdb_data['languages']  # Prefer TMDb languages
+            }
         
         # Fetch related news
         news_items = news_collection.find({
@@ -367,19 +389,19 @@ async def find_name(update, context):
         if news_count == 0:
             news_text = "\n\n📰 **Related News**: None found."
         
-        share_button = [[InlineKeyboardButton("📤 Share", switch_inline_query=f"Check out {tmdb_data['title']}!")]]
+        share_button = [[InlineKeyboardButton("📤 Share", switch_inline_query=f"Check out {final_data['title']}!")]]
         reply_markup = InlineKeyboardMarkup(share_button)
         
         await update.message.reply_photo(
-            photo=tmdb_data['poster'],
+            photo=final_data['poster'],
             caption=(
-                f"🎥 **{tmdb_data['title']}**\n"
-                f"Type: {tmdb_data['media_type']}\n"
-                f"Release: {tmdb_data['release_date']}\n"
-                f"Overview: {tmdb_data['overview'][:200]}...\n"
-                f"Cast: {tmdb_data['cast']}\n"
-                f"Director: {tmdb_data['director']}\n"
-                f"Languages: {tmdb_data['languages']}{news_text}"
+                f"🎥 **{final_data['title']}**\n"
+                f"Type: {final_data['media_type']}\n"
+                f"Release: {final_data['release_date']}\n"
+                f"Overview: {final_data['overview'][:200]}...\n"
+                f"Cast: {final_data['cast']}\n"
+                f"Director: {final_data['director']}\n"
+                f"Languages: {final_data['languages']}{news_text}"
             ),
             parse_mode="Markdown",
             reply_markup=reply_markup
@@ -508,9 +530,9 @@ def fetch_upcoming_movies(genres):
                         if tv_data:
                             movies.append(tv_data)
             elif genre == 'anime':
-                tmdb_shows = tv_api.popular(genre=16)
+                tmdb_shows = tv_api.popular()
                 for s in tmdb_shows:
-                    if s.origin_country and 'JP' in s.origin_country and s.first_air_date and int(s.first_air_date[:4]) >= 2020:
+                    if s.origin_country and 'JP' in s.origin_country and 16 in getattr(s, 'genre_ids', []) and s.first_air_date and int(s.first_air_date[:4]) >= 2020:
                         tv_data = fetch_tv_details(s, genre)
                         if not tv_data:
                             tv_data = fetch_omdb_details(s.name, genre)
@@ -526,7 +548,8 @@ def fetch_upcoming_movies(genres):
                 seen.add(key)
                 unique_movies.append(movie)
         
-        # Store in MongoDB
+        # Store in MongoDB with unique index
+        movies_collection.create_index([('title', 1), ('release_date', 1)], unique=True)
         for movie in unique_movies:
             movies_collection.update_one(
                 {'title': movie['title'], 'release_date': movie['release_date']},
@@ -545,6 +568,7 @@ def fetch_movie_details(movie, genre):
             logger.warning(f"Skipping movie with missing ID: {movie}")
             return {}
         
+        await asyncio.sleep(0.25)  # Rate limit: 40 req/10s
         details = movie_api.details(movie.id)
         if not details or not hasattr(details, 'title'):
             logger.warning(f"Invalid movie data for ID {movie.id}")
@@ -576,6 +600,7 @@ def fetch_tv_details(show, genre):
             logger.warning(f"Skipping show with missing ID: {show}")
             return {}
         
+        await asyncio.sleep(0.25)  # Rate limit: 40 req/10s
         details = tv_api.details(show.id)
         if not details or not hasattr(details, 'name'):
             logger.warning(f"Invalid TV data for ID {show.id}")
@@ -603,6 +628,7 @@ def fetch_tv_details(show, genre):
 
 def fetch_omdb_details(title, genre):
     try:
+        await asyncio.sleep(0.1)  # OMDb rate limit: 1000/day
         omdb_url = f"http://www.omdbapi.com/?t={title}&apikey={config.OMDB_API_KEY}"
         response = requests.get(omdb_url, timeout=10)
         omdb_data = response.json()
@@ -657,6 +683,7 @@ def scrape_movie_news():
                 'scraped_at': datetime.now(UTC)
             })
         
+        news_collection.create_index([('title', 1), ('link', 1)], unique=True)
         for news in news_items:
             news_collection.update_one(
                 {'title': news['title'], 'link': news['link']},
@@ -692,6 +719,19 @@ async def notify_users(context):
         })
         
         for movie in upcoming_movies:
+            # Verify with OMDb
+            omdb_data = fetch_omdb_details(movie['title'], movie['genre'])
+            if omdb_data and omdb_data['release_date'] != 'TBA':
+                movie['release_date'] = omdb_data['release_date']
+                movie['overview'] = omdb_data['overview'] if omdb_data['overview'] != 'No overview available' else movie['overview']
+                movie['cast'] = omdb_data['cast']
+                movie['director'] = omdb_data['director']
+                movies_collection.update_one(
+                    {'title': movie['title'], 'release_date': movie['release_date']},
+                    {'$set': movie},
+                    upsert=True
+                )
+            
             for user in users_collection.find({'genres': movie['genre'].lower()}):
                 share_button = [[InlineKeyboardButton("📤 Share", switch_inline_query=f"Check out {movie['title']} ({movie['release_date']})!")]]
                 reply_markup = InlineKeyboardMarkup(share_button)
