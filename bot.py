@@ -9,10 +9,10 @@ from datetime import datetime, timedelta, UTC
 import asyncio
 import config
 import logging
-import re
 
 # Setup logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)  # Suppress httpx logs
 logger = logging.getLogger(__name__)
 
 # Initialize TMDb API
@@ -257,7 +257,7 @@ async def upcoming(update, context):
         logger.error(f"Error in upcoming: {e}")
         await update.message.reply_text("🚨 Error fetching releases.")
 
-async def check_release(update, context):
+async def check_release(update, hardworking, context):
     try:
         if not context.args:
             await update.message.reply_text("🔍 Provide a movie/series name: /checkrelease <name>")
@@ -274,9 +274,9 @@ async def check_release(update, context):
         media_type = result.media_type
         details = movie_api.details(result.id) if media_type == 'movie' else tv_api.details(result.id)
         
-        cast = ', '.join([c['name'] for c in details.credits.cast[:3]]) if details.credits.cast else 'N/A'
-        director = next((c['name'] for c in details.credits.crew if c['job'] == 'Director'), 'N/A')
-        languages = ', '.join([l['english_name'] for l in details.spoken_languages]) if details.spoken_languages else 'N/A'
+        cast = ', '.join([c['name'] for c in details.get('credits', {}).get('cast', [])[:3]]) if details.get('credits', {}).get('cast') else 'N/A'
+        director = next((c['name'] for c in details.get('credits', {}).get('crew', []) if c['job'] == 'Director'), 'N/A')
+        languages = ', '.join([l['english_name'] for l in details.get('spoken_languages', [])]) if details.get('spoken_languages') else 'N/A'
         
         share_button = [[InlineKeyboardButton("📤 Share", switch_inline_query=f"Check out {result.title or result.name}!")]]
         reply_markup = InlineKeyboardMarkup(share_button)
@@ -306,46 +306,64 @@ def fetch_upcoming_movies(genres):
                 tmdb_movies = movie_api.upcoming(region='IN')
                 for m in tmdb_movies:
                     if m.original_language == 'hi':
-                        movies.append(fetch_movie_details(m, genre))
+                        movie_data = fetch_movie_details(m, genre)
+                        if movie_data:
+                            movies.append(movie_data)
             elif genre == 'hollywood':
                 tmdb_movies = movie_api.upcoming(region='US')
                 for m in tmdb_movies:
                     if m.original_language == 'en':
-                        movies.append(fetch_movie_details(m, genre))
+                        movie_data = fetch_movie_details(m, genre)
+                        if movie_data:
+                            movies.append(movie_data)
             elif genre == 'tamil':
                 tmdb_movies = movie_api.upcoming(region='IN')
                 for m in tmdb_movies:
                     if m.original_language == 'ta':
-                        movies.append(fetch_movie_details(m, genre))
+                        movie_data = fetch_movie_details(m, genre)
+                        if movie_data:
+                            movies.append(movie_data)
             elif genre == 'tollywood':
                 tmdb_movies = movie_api.upcoming(region='IN')
                 for m in tmdb_movies:
                     if m.original_language == 'te':
-                        movies.append(fetch_movie_details(m, genre))
+                        movie_data = fetch_movie_details(m, genre)
+                        if movie_data:
+                            movies.append(movie_data)
             elif genre == 'gujarati':
                 tmdb_movies = movie_api.upcoming(region='IN')
                 for m in tmdb_movies:
                     if m.original_language == 'gu':
-                        movies.append(fetch_movie_details(m, genre))
+                        movie_data = fetch_movie_details(m, genre)
+                        if movie_data:
+                            movies.append(movie_data)
             elif genre == 'marathi':
                 tmdb_movies = movie_api.upcoming(region='IN')
                 for m in tmdb_movies:
                     if m.original_language == 'mr':
-                        movies.append(fetch_movie_details(m, genre))
+                        movie_data = fetch_movie_details(m, genre)
+                        if movie_data:
+                            movies.append(movie_data)
             elif genre == 'korean':
                 tmdb_shows = tv_api.on_the_air(language='ko')
                 for s in tmdb_shows:
                     if s.original_language == 'ko':
-                        movies.append(fetch_tv_details(s, genre))
+                        tv_data = fetch_tv_details(s, genre)
+                        if tv_data:
+                            movies.append(tv_data)
             elif genre == 'indian':
                 tmdb_shows = tv_api.on_the_air(region='IN')
                 for s in tmdb_shows:
                     if s.origin_country and 'IN' in s.origin_country:
-                        movies.append(fetch_tv_details(s, genre))
+                        tv_data = fetch_tv_details(s, genre)
+                        if tv_data:
+                            movies.append(tv_data)
             elif genre == 'webseries':
                 tmdb_shows = tv_api.popular()
                 for s in tmdb_shows:
-                    movies.append(fetch_tv_details(s, genre))
+                    tv_data = fetch_tv_details(s, genre)
+                    if tv_data:
+                        movies.append(tv_data)
         
         # Remove duplicates
         seen = set()
@@ -371,42 +389,62 @@ def fetch_upcoming_movies(genres):
 
 def fetch_movie_details(movie, genre):
     try:
+        if not hasattr(movie, 'id') or not movie.id:
+            logger.warning(f"Skipping movie with missing ID: {movie}")
+            return {}
+        
         details = movie_api.details(movie.id)
-        cast = ', '.join([c['name'] for c in details.credits.cast[:3]]) if details.credits.cast else 'N/A'
-        director = next((c['name'] for c in details.credits.crew if c['job'] == 'Director'), 'N/A')
-        languages = ', '.join([l['english_name'] for l in details.spoken_languages]) if details.spoken_languages else 'N/A'
+        if not details or not hasattr(details, 'title'):
+            logger.warning(f"Invalid movie details for ID {movie.id}")
+            return {}
+        
+        credits = getattr(details, 'credits', None)
+        cast = ', '.join([c['name'] for c in credits.cast[:3]]) if credits and credits.cast else 'N/A'
+        director = next((c['name'] for c in credits.crew if c['job'] == 'Director'), 'N/A') if credits and credits.crew else 'N/A'
+        languages = ', '.join([l['english_name'] for l in details.get('spoken_languages', [])]) if details.get('spoken_languages') else 'N/A'
+        
         return {
-            'title': movie.title,
+            'title': details.title,
             'genre': GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', ''),
-            'release_date': movie.release_date or 'TBA',
-            'overview': movie.overview,
-            'poster': f"https://image.tmdb.org/t/p/w500{movie.poster_path}" if movie.poster_path else "https://via.placeholder.com/500",
+            'release_date': details.release_date or 'TBA',
+            'overview': details.overview or 'No overview available',
+            'poster': f"https://image.tmdb.org/t/p/w500{details.poster_path}" if details.poster_path else "https://via.placeholder.com/500",
             'cast': cast,
             'director': director,
             'languages': languages
         }
     except Exception as e:
-        logger.error(f"Error fetching movie details: {e}")
+        logger.error(f"Error fetching movie details for ID {getattr(movie, 'id', 'unknown')}: {e}")
         return {}
 
 def fetch_tv_details(show, genre):
     try:
+        if not hasattr(show, 'id') or not show.id:
+            logger.warning(f"Skipping show with missing ID: {show}")
+            return {}
+        
         details = tv_api.details(show.id)
-        cast = ', '.join([c['name'] for c in details.credits.cast[:3]]) if details.credits.cast else 'N/A'
-        director = next((c['name'] for c in details.credits.crew if c['job'] == 'Director'), 'N/A')
-        languages = ', '.join([l['english_name'] for l in details.spoken_languages]) if details.spoken_languages else 'N/A'
+        if not details or not hasattr(details, 'name'):
+            logger.warning(f"Invalid TV details for ID {show.id}")
+            return {}
+        
+        credits = getattr(details, 'credits', None)
+        cast = ', '.join([c['name'] for c in credits.cast[:3]]) if credits and credits.cast else 'N/A'
+        director = next((c['name'] for c in credits.crew if c['job'] == 'Director'), 'N/A') if credits and credits.crew else 'N/A'
+        languages = ', '.join([l['english_name'] for l in details.get('spoken_languages', [])]) if details.get('spoken_languages') else 'N/A'
+        
         return {
-            'title': show.name,
+            'title': details.name,
             'genre': GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', ''),
-            'release_date': show.first_air_date or 'TBA',
-            'overview': show.overview,
-            'poster': f"https://image.tmdb.org/t/p/w500{show.poster_path}" if show.poster_path else "https://via.placeholder.com/500",
+            'release_date': details.first_air_date or 'TBA',
+            'overview': details.overview or 'No overview available',
+            'poster': f"https://image.tmdb.org/t/p/w500{details.poster_path}" if details.poster_path else "https://via.placeholder.com/500",
             'cast': cast,
             'director': director,
             'languages': languages
         }
     except Exception as e:
-        logger.error(f"Error fetching TV details: {e}")
+        logger.error(f"Error fetching TV details for ID {getattr(show, 'id', 'unknown')}: {e}")
         return {}
 
 def scrape_movie_news():
@@ -528,7 +566,7 @@ def main():
         app.add_handler(CommandHandler('checkrelease', check_release))
         app.add_error_handler(error_handler)
         
-        # Schedule notifications (daily for no genres, monthly/weekly for releases, news)
+        # Schedule notifications
         app.job_queue.run_repeating(notify_users, interval=86400, first=10)
         
         app.run_polling()
