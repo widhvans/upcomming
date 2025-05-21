@@ -9,10 +9,11 @@ from datetime import datetime, timedelta, UTC
 import asyncio
 import config
 import logging
+import re
 
 # Setup logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-logging.getLogger("httpx").setLevel(logging.WARNING)  # Suppress httpx logs
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Initialize TMDb API
@@ -42,9 +43,14 @@ GENRES = {
     'tollywood': '🎬 Tollywood',
     'gujarati': '🎬 Gujarati',
     'marathi': '🎬 Marathi',
+    'bengali': '🎬 Bengali',
+    'punjabi': '🎬 Punjabi',
+    'malayalam': '🎬 Malayalam',
+    'kannada': '🎬 Kannada',
     'korean': '📺 Korean Dramas',
     'indian': '📺 Indian Dramas',
-    'webseries': '🌐 Web Series'
+    'webseries': '🌐 Web Series',
+    'anime': '🎞️ Anime'
 }
 
 async def start(update, context):
@@ -56,7 +62,7 @@ async def start(update, context):
             await update.message.reply_photo(
                 photo=config.WELCOME_IMAGE_URL,
                 caption=(
-                    f"🎉 Welcome back! You're set for: {', '.join([GENRES[g].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '') for g in user['genres']])}\n"
+                    f"🎉 Welcome back! You're set for: {', '.join([GENRES[g].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', '') for g in user['genres']])}\n"
                     "Explore with /upcoming or reset with /reset. 🍿"
                 )
             )
@@ -66,7 +72,7 @@ async def start(update, context):
         row = []
         for i, genre in enumerate(GENRES):
             row.append(InlineKeyboardButton(GENRES[genre], callback_data=genre))
-            if (i + 1) % 3 == 0 or i == len(GENRES) - 1:
+            if (i + 1) % 2 == 0 or i == len(GENRES) - 1:
                 keyboard.append(row)
                 row = []
         keyboard.append([InlineKeyboardButton("✅ Done", callback_data="done")])
@@ -103,7 +109,7 @@ async def genre_selection(update, context):
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await query.message.reply_text(
-                f"Selected: {', '.join([GENRES[g].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '') for g in context.user_data['selected_genres']])}\nConfirm? ✅",
+                f"Selected: {', '.join([GENRES[g].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', '') for g in context.user_data['selected_genres']])}\nConfirm? ✅",
                 reply_markup=reply_markup
             )
             return CONFIRM
@@ -118,7 +124,7 @@ async def genre_selection(update, context):
         for i, genre in enumerate(GENRES):
             text = f"{GENRES[genre]} {'✅' if genre in context.user_data['selected_genres'] else ''}"
             row.append(InlineKeyboardButton(text, callback_data=genre))
-            if (i + 1) % 3 == 0 or i == len(GENRES) - 1:
+            if (i + 1) % 2 == 0 or i == len(GENRES) - 1:
                 keyboard.append(row)
                 row = []
         keyboard.append([InlineKeyboardButton("✅ Done", callback_data="done")])
@@ -153,7 +159,7 @@ async def confirm_selection(update, context):
         )
         
         await query.message.reply_text(
-            f"🎉 Locked in: {', '.join([GENRES[g].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '') for g in context.user_data['selected_genres']])}\n"
+            f"🎉 Locked in: {', '.join([GENRES[g].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', '') for g in context.user_data['selected_genres']])}\n"
             "Get upcoming releases with /upcoming! 🍿"
         )
         context.user_data['selected_genres'] = []
@@ -189,7 +195,7 @@ async def stats(update, context):
         
         stats_message = f"📊 Bot Stats\n\nTotal Users: {total_users}\n\nGenres:\n"
         for genre, count in genres_count.items():
-            stats_message += f"{GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '')}: {count} users\n"
+            stats_message += f"{GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', '')}: {count} users\n"
         
         await update.message.reply_text(stats_message)
     except Exception as e:
@@ -287,21 +293,23 @@ async def find_name(update, context):
             return ConversationHandler.END
         
         result = results[0]
-        media_type = result.media_type
+        media_type = getattr(result, 'media_type', 'unknown')
         details = movie_api.details(result.id) if media_type == 'movie' else tv_api.details(result.id)
         
-        # Sanitize overview
-        overview = str(details.get('overview', 'No overview available')).replace('\n', ' ').strip()
+        # Sanitize data
+        title = str(getattr(details, 'title', getattr(details, 'name', 'Unknown'))).strip()
+        overview = re.sub(r'[^\x00-\x7F]+', ' ', str(details.get('overview', 'No overview available'))).strip()
         if not overview:
             overview = 'No overview available'
         
-        cast = ', '.join([c['name'] for c in details.get('credits', {}).get('cast', [])[:3]]) if details.get('credits', {}).get('cast') else 'N/A'
-        director = next((c['name'] for c in details.get('credits', {}).get('crew', []) if c['job'] == 'Director'), 'N/A')
+        credits = getattr(details, 'credits', {})
+        cast = ', '.join([c['name'] for c in credits.get('cast', [])[:3]]) if credits.get('cast') else 'N/A'
+        director = next((c['name'] for c in credits.get('crew', []) if c['job'] == 'Director'), 'N/A')
         languages = ', '.join([l['english_name'] for l in details.get('spoken_languages', [])]) if details.get('spoken_languages') else 'N/A'
         
         # Fetch related news
         news_items = news_collection.find({
-            'title': {'$regex': query, '$options': 'i'}
+            'title': {'$regex': re.escape(query), '$options': 'i'}
         }).limit(3)
         
         news_text = "\n\n📰 **Related News**:\n"
@@ -312,15 +320,15 @@ async def find_name(update, context):
         if news_count == 0:
             news_text = "\n\n📰 **Related News**: None found."
         
-        share_button = [[InlineKeyboardButton("📤 Share", switch_inline_query=f"Check out {result.title or result.name}!")]]
+        share_button = [[InlineKeyboardButton("📤 Share", switch_inline_query=f"Check out {title}!")]]
         reply_markup = InlineKeyboardMarkup(share_button)
         
         await update.message.reply_photo(
             photo=f"https://image.tmdb.org/t/p/w500{result.poster_path}" if result.poster_path else "https://via.placeholder.com/500",
             caption=(
-                f"🎥 **{result.title or result.name}**\n"
+                f"🎥 **{title}**\n"
                 f"Type: {'Movie' if media_type == 'movie' else 'Series'}\n"
-                f"Release: {result.release_date or result.first_air_date or 'TBA'}\n"
+                f"Release: {getattr(result, 'release_date', getattr(result, 'first_air_date', 'TBA'))}\n"
                 f"Overview: {overview[:200]}...\n"
                 f"Cast: {cast}\n"
                 f"Director: {director}\n"
@@ -343,10 +351,10 @@ def fetch_upcoming_movies(genres):
     try:
         movies = []
         for genre in genres:
-            if genre == 'bollywood':
+            if genre in ['bollywood', 'bengali']:
                 tmdb_movies = movie_api.upcoming(region='IN')
                 for m in tmdb_movies:
-                    if m.original_language in ['hi', 'bn']:  # Include Bengali
+                    if m.original_language in ['hi', 'bn']:
                         movie_data = fetch_movie_details(m, genre)
                         if movie_data:
                             movies.append(movie_data)
@@ -385,6 +393,27 @@ def fetch_upcoming_movies(genres):
                         movie_data = fetch_movie_details(m, genre)
                         if movie_data:
                             movies.append(movie_data)
+            elif genre == 'punjabi':
+                tmdb_movies = movie_api.upcoming(region='IN')
+                for m in tmdb_movies:
+                    if m.original_language == 'pa':
+                        movie_data = fetch_movie_details(m, genre)
+                        if movie_data:
+                            movies.append(movie_data)
+            elif genre == 'malayalam':
+                tmdb_movies = movie_api.upcoming(region='IN')
+                for m in tmdb_movies:
+                    if m.original_language == 'ml':
+                        movie_data = fetch_movie_details(m, genre)
+                        if movie_data:
+                            movies.append(movie_data)
+            elif genre == 'kannada':
+                tmdb_movies = movie_api.upcoming(region='IN')
+                for m in tmdb_movies:
+                    if m.original_language == 'kn':
+                        movie_data = fetch_movie_details(m, genre)
+                        if movie_data:
+                            movies.append(movie_data)
             elif genre == 'korean':
                 tmdb_shows = tv_api.on_the_air()
                 for s in tmdb_shows:
@@ -405,6 +434,13 @@ def fetch_upcoming_movies(genres):
                     tv_data = fetch_tv_details(s, genre)
                     if tv_data:
                         movies.append(tv_data)
+            elif genre == 'anime':
+                tmdb_shows = tv_api.popular(genre=16)  # TMDb genre ID 16 = Animation
+                for s in tmdb_shows:
+                    if s.origin_country and 'JP' in s.origin_country:  # Japanese anime
+                        tv_data = fetch_tv_details(s, genre)
+                        if tv_data:
+                            movies.append(tv_data)
         
         # Remove duplicates
         seen = set()
@@ -439,15 +475,15 @@ def fetch_movie_details(movie, genre):
             logger.warning(f"Invalid movie data for ID {movie.id}")
             return {}
         
-        credits = getattr(details, 'credits', None)
-        cast = ', '.join([c['name'] for c in credits.cast[:3]]) if credits and credits.cast else 'N/A'
-        director = next((c['name'] for c in credits.crew if c['job'] == 'Director'), 'N/A') if credits and credits.crew else 'N/A'
+        credits = getattr(details, 'credits', {})
+        cast = ', '.join([c['name'] for c in credits.get('cast', [])[:3]]) if credits.get('cast') else 'N/A'
+        director = next((c['name'] for c in credits.get('crew', []) if c['job'] == 'Director'), 'N/A')
         languages = ', '.join([l['english_name'] for l in details.get('spoken_languages', [])]) if details.get('spoken_languages') else 'N/A'
-        overview = str(details.get('overview', 'No overview available')).replace('\n', ' ').strip()
+        overview = re.sub(r'[^\x00-\x7F]+', ' ', str(details.get('overview', 'No overview available'))).strip()
         
         return {
-            'title': details.title,
-            'genre': GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', ''),
+            'title': str(details.title).strip(),
+            'genre': GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', ''),
             'release_date': details.release_date or 'TBA',
             'overview': overview or 'No overview available',
             'poster': f"https://image.tmdb.org/t/p/w500{details.poster_path}" if details.poster_path else "https://via.placeholder.com/500",
@@ -470,15 +506,15 @@ def fetch_tv_details(show, genre):
             logger.warning(f"Invalid TV data for ID {show.id}")
             return {}
         
-        credits = getattr(details, 'credits', None)
-        cast = ', '.join([c['name'] for c in credits.cast[:3]]) if credits and credits.cast else 'N/A'
-        director = next((c['name'] for c in credits.crew if c['job'] == 'Director'), 'N/A') if credits and credits.crew else 'N/A'
+        credits = getattr(details, 'credits', {})
+        cast = ', '.join([c['name'] for c in credits.get('cast', [])[:3]]) if credits.get('cast') else 'N/A'
+        director = next((c['name'] for c in credits.get('crew', []) if c['job'] == 'Director'), 'N/A')
         languages = ', '.join([l['english_name'] for l in details.get('spoken_languages', [])]) if details.get('spoken_languages') else 'N/A'
-        overview = str(details.get('overview', 'No overview available')).replace('\n', ' ').strip()
+        overview = re.sub(r'[^\x00-\x7F]+', ' ', str(details.get('overview', 'No overview available'))).strip()
         
         return {
-            'title': details.name,
-            'genre': GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', ''),
+            'title': str(details.name).strip(),
+            'genre': GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', ''),
             'release_date': details.first_air_date or 'TBA',
             'overview': overview or 'No overview available',
             'poster': f"https://image.tmdb.org/t/p/w500{details.poster_path}" if details.poster_path else "https://via.placeholder.com/500",
