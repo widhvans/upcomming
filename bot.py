@@ -294,7 +294,14 @@ async def find_name(update, context):
         
         result = results[0]
         media_type = getattr(result, 'media_type', 'unknown')
+        if media_type not in ['movie', 'tv']:
+            await update.message.reply_text(f"😔 Invalid result for '{query}'.")
+            return ConversationHandler.END
+        
         details = movie_api.details(result.id) if media_type == 'movie' else tv_api.details(result.id)
+        if not details:
+            await update.message.reply_text(f"😔 No details found for '{query}'.")
+            return ConversationHandler.END
         
         # Sanitize data
         title = str(getattr(details, 'title', getattr(details, 'name', 'Unknown'))).strip()
@@ -324,7 +331,7 @@ async def find_name(update, context):
         reply_markup = InlineKeyboardMarkup(share_button)
         
         await update.message.reply_photo(
-            photo=f"https://image.tmdb.org/t/p/w500{result.poster_path}" if result.poster_path else "https://via.placeholder.com/500",
+            photo=f"https://image.tmdb.org/t/p/w500{result.poster_path}" if getattr(result, 'poster_path', None) else "https://via.placeholder.com/500",
             caption=(
                 f"🎥 **{title}**\n"
                 f"Type: {'Movie' if media_type == 'movie' else 'Series'}\n"
@@ -435,9 +442,9 @@ def fetch_upcoming_movies(genres):
                     if tv_data:
                         movies.append(tv_data)
             elif genre == 'anime':
-                tmdb_shows = tv_api.popular(genre=16)  # TMDb genre ID 16 = Animation
+                tmdb_shows = tv_api.popular(genre=16)
                 for s in tmdb_shows:
-                    if s.origin_country and 'JP' in s.origin_country:  # Japanese anime
+                    if s.origin_country and 'JP' in s.origin_country:
                         tv_data = fetch_tv_details(s, genre)
                         if tv_data:
                             movies.append(tv_data)
@@ -588,7 +595,6 @@ async def notify_users(context):
                 share_button = [[InlineKeyboardButton("📤 Share", switch_inline_query=f"Check out {movie['title']} ({movie['release_date']})!")]]
                 reply_markup = InlineKeyboardMarkup(share_button)
                 await context.bot.send_photo(
-                    chat_id=user['user_id'],
                     photo=movie['poster'],
                     caption=(
                         f"📢 **{movie['title']}** {'this month' if movie['release_date'].startswith(current_month) else 'in 7 days'}!\n"
