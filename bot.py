@@ -162,7 +162,6 @@ async def confirm_selection(update, context):
             f"🎉 Locked in: {', '.join([GENRES[g].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', '') for g in context.user_data['selected_genres']])}\n"
             "Get upcoming releases with /upcoming! 🍿"
         )
-        # Notify user of new genre selection
         await context.bot.send_message(
             chat_id=user_id,
             text=f"📢 You've selected new genres! You'll now receive updates for {', '.join([GENRES[g].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', '') for g in context.user_data['selected_genres']])}."
@@ -249,7 +248,7 @@ async def upcoming(update, context):
             return
         
         genres = user['genres']
-        movies = fetch_upcoming_movies(genres)
+        movies = await fetch_upcoming_movies(genres)
         
         if not movies:
             await update.message.reply_text("😔 No upcoming releases found.")
@@ -355,6 +354,27 @@ async def find_name(update, context):
                     }
                     if not omdb_data['overview']:
                         omdb_data['overview'] = 'No overview available'
+            # Retry with alternative title format
+            if not omdb_data or omdb_data.get('Response') != 'True':
+                alt_query = query.replace(' ', '+')
+                omdb_url = f"http://www.omdbapi.com/?t={alt_query}&apikey={config.OMDB_API_KEY}"
+                response = requests.get(omdb_url, timeout=10)
+                alt_data = response.json()
+                if alt_data.get('Response') == 'True':
+                    release_year = alt_data.get('Year', 'N/A')
+                    if release_year.isdigit() and int(release_year) >= 2020:
+                        omdb_data = {
+                            'title': str(alt_data.get('Title', tmdb_data['title'] if tmdb_data else 'Unknown')).strip(),
+                            'media_type': alt_data.get('Type', 'Movie').capitalize(),
+                            'release_date': alt_data.get('Released', tmdb_data['release_date'] if tmdb_data else 'TBA'),
+                            'overview': re.sub(r'[^\x00-\x7F]+', ' ', str(alt_data.get('Plot', tmdb_data['overview'] if tmdb_data else 'No overview available'))).strip(),
+                            'poster': alt_data.get('Poster', tmdb_data['poster'] if tmdb_data else 'https://via.placeholder.com/500'),
+                            'cast': alt_data.get('Actors', tmdb_data['cast'] if tmdb_data else 'N/A'),
+                            'director': alt_data.get('Director', tmdb_data['director'] if tmdb_data else 'N/A'),
+                            'languages': alt_data.get('Language', tmdb_data['languages'] if tmdb_data else 'N/A')
+                        }
+                        if not omdb_data['overview']:
+                            omdb_data['overview'] = 'No overview available'
         except Exception as e:
             logger.warning(f"OMDb failed for query '{query}': {e}")
         
@@ -416,126 +436,139 @@ async def find_cancel(update, context):
     await update.message.reply_text("🔍 Search cancelled. Use /find to try again.")
     return ConversationHandler.END
 
-def fetch_upcoming_movies(genres):
+async def fetch_upcoming_movies(genres):
     try:
         movies = []
         current_year = datetime.now(UTC).year
         for genre in genres:
             if genre in ['bollywood', 'bengali']:
+                await asyncio.sleep(0.25)  # Rate limit: 40 req/10s
                 tmdb_movies = movie_api.upcoming(region='IN')
                 for m in tmdb_movies:
                     if m.original_language in ['hi', 'bn'] and m.release_date and int(m.release_date[:4]) >= 2020:
-                        movie_data = fetch_movie_details(m, genre)
+                        movie_data = await fetch_movie_details(m, genre)
                         if not movie_data:
-                            movie_data = fetch_omdb_details(m.title, genre)
+                            movie_data = await fetch_omdb_details(m.title, genre)
                         if movie_data:
                             movies.append(movie_data)
             elif genre == 'hollywood':
+                await asyncio.sleep(0.25)
                 tmdb_movies = movie_api.upcoming(region='US')
                 for m in tmdb_movies:
                     if m.original_language == 'en' and m.release_date and int(m.release_date[:4]) >= 2020:
-                        movie_data = fetch_movie_details(m, genre)
+                        movie_data = await fetch_movie_details(m, genre)
                         if not movie_data:
-                            movie_data = fetch_omdb_details(m.title, genre)
+                            movie_data = await fetch_omdb_details(m.title, genre)
                         if movie_data:
                             movies.append(movie_data)
             elif genre == 'tamil':
+                await asyncio.sleep(0.25)
                 tmdb_movies = movie_api.upcoming(region='IN')
                 for m in tmdb_movies:
                     if m.original_language == 'ta' and m.release_date and int(m.release_date[:4]) >= 2020:
-                        movie_data = fetch_movie_details(m, genre)
+                        movie_data = await fetch_movie_details(m, genre)
                         if not movie_data:
-                            movie_data = fetch_omdb_details(m.title, genre)
+                            movie_data = await fetch_omdb_details(m.title, genre)
                         if movie_data:
                             movies.append(movie_data)
             elif genre == 'tollywood':
+                await asyncio.sleep(0.25)
                 tmdb_movies = movie_api.upcoming(region='IN')
                 for m in tmdb_movies:
                     if m.original_language == 'te' and m.release_date and int(m.release_date[:4]) >= 2020:
-                        movie_data = fetch_movie_details(m, genre)
+                        movie_data = await fetch_movie_details(m, genre)
                         if not movie_data:
-                            movie_data = fetch_omdb_details(m.title, genre)
+                            movie_data = await fetch_omdb_details(m.title, genre)
                         if movie_data:
                             movies.append(movie_data)
             elif genre == 'gujarati':
+                await asyncio.sleep(0.25)
                 tmdb_movies = movie_api.upcoming(region='IN')
                 for m in tmdb_movies:
                     if m.original_language == 'gu' and m.release_date and int(m.release_date[:4]) >= 2020:
-                        movie_data = fetch_movie_details(m, genre)
+                        movie_data = await fetch_movie_details(m, genre)
                         if not movie_data:
-                            movie_data = fetch_omdb_details(m.title, genre)
+                            movie_data = await fetch_omdb_details(m.title, genre)
                         if movie_data:
                             movies.append(movie_data)
             elif genre == 'marathi':
+                await asyncio.sleep(0.25)
                 tmdb_movies = movie_api.upcoming(region='IN')
                 for m in tmdb_movies:
                     if m.original_language == 'mr' and m.release_date and int(m.release_date[:4]) >= 2020:
-                        movie_data = fetch_movie_details(m, genre)
+                        movie_data = await fetch_movie_details(m, genre)
                         if not movie_data:
-                            movie_data = fetch_omdb_details(m.title, genre)
+                            movie_data = await fetch_omdb_details(m.title, genre)
                         if movie_data:
                             movies.append(movie_data)
             elif genre == 'punjabi':
+                await asyncio.sleep(0.25)
                 tmdb_movies = movie_api.upcoming(region='IN')
                 for m in tmdb_movies:
                     if m.original_language == 'pa' and m.release_date and int(m.release_date[:4]) >= 2020:
-                        movie_data = fetch_movie_details(m, genre)
+                        movie_data = await fetch_movie_details(m, genre)
                         if not movie_data:
-                            movie_data = fetch_omdb_details(m.title, genre)
+                            movie_data = await fetch_omdb_details(m.title, genre)
                         if movie_data:
                             movies.append(movie_data)
             elif genre == 'malayalam':
+                await asyncio.sleep(0.25)
                 tmdb_movies = movie_api.upcoming(region='IN')
                 for m in tmdb_movies:
                     if m.original_language == 'ml' and m.release_date and int(m.release_date[:4]) >= 2020:
-                        movie_data = fetch_movie_details(m, genre)
+                        movie_data = await fetch_movie_details(m, genre)
                         if not movie_data:
-                            movie_data = fetch_omdb_details(m.title, genre)
+                            movie_data = await fetch_omdb_details(m.title, genre)
                         if movie_data:
                             movies.append(movie_data)
             elif genre == 'kannada':
+                await asyncio.sleep(0.25)
                 tmdb_movies = movie_api.upcoming(region='IN')
                 for m in tmdb_movies:
                     if m.original_language == 'kn' and m.release_date and int(m.release_date[:4]) >= 2020:
-                        movie_data = fetch_movie_details(m, genre)
+                        movie_data = await fetch_movie_details(m, genre)
                         if not movie_data:
-                            movie_data = fetch_omdb_details(m.title, genre)
+                            movie_data = await fetch_omdb_details(m.title, genre)
                         if movie_data:
                             movies.append(movie_data)
             elif genre == 'korean':
+                await asyncio.sleep(0.25)
                 tmdb_shows = tv_api.on_the_air()
                 for s in tmdb_shows:
                     if getattr(s, 'original_language', '') == 'ko' and s.first_air_date and int(s.first_air_date[:4]) >= 2020:
-                        tv_data = fetch_tv_details(s, genre)
+                        tv_data = await fetch_tv_details(s, genre)
                         if not tv_data:
-                            tv_data = fetch_omdb_details(s.name, genre)
+                            tv_data = await fetch_omdb_details(s.name, genre)
                         if tv_data:
                             movies.append(tv_data)
             elif genre == 'indian':
+                await asyncio.sleep(0.25)
                 tmdb_shows = tv_api.on_the_air(region='IN')
                 for s in tmdb_shows:
                     if s.origin_country and 'IN' in s.origin_country and s.first_air_date and int(s.first_air_date[:4]) >= 2020:
-                        tv_data = fetch_tv_details(s, genre)
+                        tv_data = await fetch_tv_details(s, genre)
                         if not tv_data:
-                            tv_data = fetch_omdb_details(s.name, genre)
+                            tv_data = await fetch_omdb_details(s.name, genre)
                         if tv_data:
                             movies.append(tv_data)
             elif genre == 'webseries':
+                await asyncio.sleep(0.25)
                 tmdb_shows = tv_api.popular()
                 for s in tmdb_shows:
                     if s.first_air_date and int(s.first_air_date[:4]) >= 2020:
-                        tv_data = fetch_tv_details(s, genre)
+                        tv_data = await fetch_tv_details(s, genre)
                         if not tv_data:
-                            tv_data = fetch_omdb_details(s.name, genre)
+                            tv_data = await fetch_omdb_details(s.name, genre)
                         if tv_data:
                             movies.append(tv_data)
             elif genre == 'anime':
+                await asyncio.sleep(0.25)
                 tmdb_shows = tv_api.popular()
                 for s in tmdb_shows:
                     if s.origin_country and 'JP' in s.origin_country and 16 in getattr(s, 'genre_ids', []) and s.first_air_date and int(s.first_air_date[:4]) >= 2020:
-                        tv_data = fetch_tv_details(s, genre)
+                        tv_data = await fetch_tv_details(s, genre)
                         if not tv_data:
-                            tv_data = fetch_omdb_details(s.name, genre)
+                            tv_data = await fetch_omdb_details(s.name, genre)
                         if tv_data:
                             movies.append(tv_data)
         
@@ -562,7 +595,7 @@ def fetch_upcoming_movies(genres):
         logger.error(f"Error in fetch_upcoming_movies: {e}")
         return []
 
-def fetch_movie_details(movie, genre):
+async def fetch_movie_details(movie, genre):
     try:
         if not hasattr(movie, 'id') or not movie.id:
             logger.warning(f"Skipping movie with missing ID: {movie}")
@@ -594,7 +627,7 @@ def fetch_movie_details(movie, genre):
         logger.error(f"Error fetching movie details for ID {getattr(movie, 'id', 'unknown')}: {e}")
         return {}
 
-def fetch_tv_details(show, genre):
+async def fetch_tv_details(show, genre):
     try:
         if not hasattr(show, 'id') or not show.id:
             logger.warning(f"Skipping show with missing ID: {show}")
@@ -626,7 +659,7 @@ def fetch_tv_details(show, genre):
         logger.error(f"Error fetching TV details for ID {getattr(show, 'id', 'unknown')}: {e}")
         return {}
 
-def fetch_omdb_details(title, genre):
+async def fetch_omdb_details(title, genre):
     try:
         await asyncio.sleep(0.1)  # OMDb rate limit: 1000/day
         omdb_url = f"http://www.omdbapi.com/?t={title}&apikey={config.OMDB_API_KEY}"
@@ -720,7 +753,7 @@ async def notify_users(context):
         
         for movie in upcoming_movies:
             # Verify with OMDb
-            omdb_data = fetch_omdb_details(movie['title'], movie['genre'])
+            omdb_data = await fetch_omdb_details(movie['title'], movie['genre'])
             if omdb_data and omdb_data['release_date'] != 'TBA':
                 movie['release_date'] = omdb_data['release_date']
                 movie['overview'] = omdb_data['overview'] if omdb_data['overview'] != 'No overview available' else movie['overview']
