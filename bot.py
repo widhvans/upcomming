@@ -32,7 +32,7 @@ movies_collection = db['movies']
 news_collection = db['news']
 
 # States for conversation
-GENRE, CONFIRM = range(2)
+GENRE, CONFIRM, FIND_NAME = range(3)
 
 # Available genres with emojis
 GENRES = {
@@ -264,26 +264,53 @@ async def upcoming(update, context):
         logger.error(f"Error in upcoming: {e}")
         await update.message.reply_text("🚨 Error fetching releases.")
 
-async def check_release(update, context):
+async def find_start(update, context):
     try:
-        if not context.args:
-            await update.message.reply_text("🔍 Provide a movie/series name: /checkrelease <name>")
-            return
+        await update.message.reply_text("🔍 Send me the movie or series name to find details and news!")
+        return FIND_NAME
+    except Exception as e:
+        logger.error(f"Error in find_start: {e}")
+        await update.message.reply_text("🚨 Error! Try again.")
+        return ConversationHandler.END
+
+async def find_name(update, context):
+    try:
+        query = update.message.text.strip()
+        if not query:
+            await update.message.reply_text("⚠️ Please provide a valid name!")
+            return FIND_NAME
         
-        query = ' '.join(context.args)
+        # Search TMDb
         results = search_api.multi(query)
-        
         if not results:
             await update.message.reply_text(f"😔 No results for '{query}'.")
-            return
+            return ConversationHandler.END
         
         result = results[0]
         media_type = result.media_type
         details = movie_api.details(result.id) if media_type == 'movie' else tv_api.details(result.id)
         
+        # Sanitize overview
+        overview = str(details.get('overview', 'No overview available')).replace('\n', ' ').strip()
+        if not overview:
+            overview = 'No overview available'
+        
         cast = ', '.join([c['name'] for c in details.get('credits', {}).get('cast', [])[:3]]) if details.get('credits', {}).get('cast') else 'N/A'
         director = next((c['name'] for c in details.get('credits', {}).get('crew', []) if c['job'] == 'Director'), 'N/A')
         languages = ', '.join([l['english_name'] for l in details.get('spoken_languages', [])]) if details.get('spoken_languages') else 'N/A'
+        
+        # Fetch related news
+        news_items = news_collection.find({
+            'title': {'$regex': query, '$options': 'i'}
+        }).limit(3)
+        
+        news_text = "\n\n📰 **Related News**:\n"
+        news_count = 0
+        for news in news_items:
+            news_text += f"- {news['title']} ([Read more]({news['link']}))\n"
+            news_count += 1
+        if news_count == 0:
+            news_text = "\n\n📰 **Related News**: None found."
         
         share_button = [[InlineKeyboardButton("📤 Share", switch_inline_query=f"Check out {result.title or result.name}!")]]
         reply_markup = InlineKeyboardMarkup(share_button)
@@ -294,16 +321,23 @@ async def check_release(update, context):
                 f"🎥 **{result.title or result.name}**\n"
                 f"Type: {'Movie' if media_type == 'movie' else 'Series'}\n"
                 f"Release: {result.release_date or result.first_air_date or 'TBA'}\n"
-                f"Overview: {result.overview[:200]}...\n"
+                f"Overview: {overview[:200]}...\n"
                 f"Cast: {cast}\n"
                 f"Director: {director}\n"
-                f"Languages: {languages}"
+                f"Languages: {languages}{news_text}"
             ),
+            parse_mode="Markdown",
             reply_markup=reply_markup
         )
+        return ConversationHandler.END
     except Exception as e:
-        logger.error(f"Error in check_release: {e}")
-        await update.message.reply_text("🚨 Error fetching details.")
+        logger.error(f"Error in find_name: {e}")
+        await update.message.reply_text("🚨 Error fetching details. Try again.")
+        return ConversationHandler.END
+
+async def find_cancel(update, context):
+    await update.message.reply_text("🔍 Search cancelled. Use /find to try again.")
+    return ConversationHandler.END
 
 def fetch_upcoming_movies(genres):
     try:
@@ -409,12 +443,13 @@ def fetch_movie_details(movie, genre):
         cast = ', '.join([c['name'] for c in credits.cast[:3]]) if credits and credits.cast else 'N/A'
         director = next((c['name'] for c in credits.crew if c['job'] == 'Director'), 'N/A') if credits and credits.crew else 'N/A'
         languages = ', '.join([l['english_name'] for l in details.get('spoken_languages', [])]) if details.get('spoken_languages') else 'N/A'
+        overview = str(details.get('overview', 'No overview available')).replace('\n', ' ').strip()
         
         return {
             'title': details.title,
             'genre': GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', ''),
             'release_date': details.release_date or 'TBA',
-            'overview': details.overview or 'No overview available',
+            'overview': overview or 'No overview available',
             'poster': f"https://image.tmdb.org/t/p/w500{details.poster_path}" if details.poster_path else "https://via.placeholder.com/500",
             'cast': cast,
             'director': director,
@@ -439,12 +474,13 @@ def fetch_tv_details(show, genre):
         cast = ', '.join([c['name'] for c in credits.cast[:3]]) if credits and credits.cast else 'N/A'
         director = next((c['name'] for c in credits.crew if c['job'] == 'Director'), 'N/A') if credits and credits.crew else 'N/A'
         languages = ', '.join([l['english_name'] for l in details.get('spoken_languages', [])]) if details.get('spoken_languages') else 'N/A'
+        overview = str(details.get('overview', 'No overview available')).replace('\n', ' ').strip()
         
         return {
             'title': details.name,
             'genre': GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', ''),
             'release_date': details.first_air_date or 'TBA',
-            'overview': details.overview or 'No overview available',
+            'overview': overview or 'No overview available',
             'poster': f"https://image.tmdb.org/t/p/w500{details.poster_path}" if details.poster_path else "https://via.placeholder.com/500",
             'cast': cast,
             'director': director,
@@ -555,12 +591,16 @@ def main():
         app = Application.builder().token(config.TELEGRAM_TOKEN).build()
         
         conv_handler = ConversationHandler(
-            entry_points=[CommandHandler('start', start)],
+            entry_points=[
+                CommandHandler('start', start),
+                CommandHandler('find', find_start)
+            ],
             states={
                 GENRE: [CallbackQueryHandler(genre_selection)],
-                CONFIRM: [CallbackQueryHandler(confirm_selection)]
+                CONFIRM: [CallbackQueryHandler(confirm_selection)],
+                FIND_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, find_name)]
             },
-            fallbacks=[],
+            fallbacks=[CommandHandler('cancel', find_cancel)],
             per_chat=True,
             per_user=True
         )
@@ -570,7 +610,6 @@ def main():
         app.add_handler(CommandHandler('reset', reset))
         app.add_handler(CommandHandler('stats', stats))
         app.add_handler(CommandHandler('broadcast', broadcast))
-        app.add_handler(CommandHandler('checkrelease', check_release))
         app.add_error_handler(error_handler)
         
         # Schedule notifications
