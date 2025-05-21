@@ -441,6 +441,7 @@ async def fetch_upcoming_movies(genres):
         movies = []
         current_year = datetime.now(UTC).year
         for genre in genres:
+            genre_movies = []
             if genre in ['bollywood', 'bengali']:
                 await asyncio.sleep(0.25)  # Rate limit: 40 req/10s
                 tmdb_movies = movie_api.upcoming(region='IN')
@@ -449,8 +450,8 @@ async def fetch_upcoming_movies(genres):
                         movie_data = await fetch_movie_details(m, genre)
                         if not movie_data:
                             movie_data = await fetch_omdb_details(m.title, genre)
-                        if movie_data:
-                            movies.append(movie_data)
+                        if movie_data and movie_data['genre'] == GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', ''):
+                            genre_movies.append(movie_data)
             elif genre == 'hollywood':
                 await asyncio.sleep(0.25)
                 tmdb_movies = movie_api.upcoming(region='US')
@@ -459,8 +460,8 @@ async def fetch_upcoming_movies(genres):
                         movie_data = await fetch_movie_details(m, genre)
                         if not movie_data:
                             movie_data = await fetch_omdb_details(m.title, genre)
-                        if movie_data:
-                            movies.append(movie_data)
+                        if movie_data and movie_data['genre'] == GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', ''):
+                            genre_movies.append(movie_data)
             elif genre == 'tamil':
                 await asyncio.sleep(0.25)
                 tmdb_movies = movie_api.upcoming(region='IN')
@@ -469,8 +470,8 @@ async def fetch_upcoming_movies(genres):
                         movie_data = await fetch_movie_details(m, genre)
                         if not movie_data:
                             movie_data = await fetch_omdb_details(m.title, genre)
-                        if movie_data:
-                            movies.append(movie_data)
+                        if movie_data and movie_data['genre'] == GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', ''):
+                            genre_movies.append(movie_data)
             elif genre == 'tollywood':
                 await asyncio.sleep(0.25)
                 tmdb_movies = movie_api.upcoming(region='IN')
@@ -479,8 +480,8 @@ async def fetch_upcoming_movies(genres):
                         movie_data = await fetch_movie_details(m, genre)
                         if not movie_data:
                             movie_data = await fetch_omdb_details(m.title, genre)
-                        if movie_data:
-                            movies.append(movie_data)
+                        if movie_data and movie_data['genre'] == GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', ''):
+                            genre_movies.append(movie_data)
             elif genre == 'gujarati':
                 await asyncio.sleep(0.25)
                 tmdb_movies = movie_api.upcoming(region='IN')
@@ -489,8 +490,8 @@ async def fetch_upcoming_movies(genres):
                         movie_data = await fetch_movie_details(m, genre)
                         if not movie_data:
                             movie_data = await fetch_omdb_details(m.title, genre)
-                        if movie_data:
-                            movies.append(movie_data)
+                        if movie_data and movie_data['genre'] == GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', ''):
+                            genre_movies.append(movie_data)
             elif genre == 'marathi':
                 await asyncio.sleep(0.25)
                 tmdb_movies = movie_api.upcoming(region='IN')
@@ -499,8 +500,8 @@ async def fetch_upcoming_movies(genres):
                         movie_data = await fetch_movie_details(m, genre)
                         if not movie_data:
                             movie_data = await fetch_omdb_details(m.title, genre)
-                        if movie_data:
-                            movies.append(movie_data)
+                        if movie_data and movie_data['genre'] == GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', ''):
+                            genre_movies.append(movie_data)
             elif genre == 'punjabi':
                 await asyncio.sleep(0.25)
                 tmdb_movies = movie_api.upcoming(region='IN')
@@ -509,8 +510,8 @@ async def fetch_upcoming_movies(genres):
                         movie_data = await fetch_movie_details(m, genre)
                         if not movie_data:
                             movie_data = await fetch_omdb_details(m.title, genre)
-                        if movie_data:
-                            movies.append(movie_data)
+                        if movie_data and movie_data['genre'] == GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', ''):
+                            genre_movies.append(movie_data)
             elif genre == 'malayalam':
                 await asyncio.sleep(0.25)
                 tmdb_movies = movie_api.upcoming(region='IN')
@@ -519,8 +520,8 @@ async def fetch_upcoming_movies(genres):
                         movie_data = await fetch_movie_details(m, genre)
                         if not movie_data:
                             movie_data = await fetch_omdb_details(m.title, genre)
-                        if movie_data:
-                            movies.append(movie_data)
+                        if movie_data and movie_data['genre'] == GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', ''):
+                            genre_movies.append(movie_data)
             elif genre == 'kannada':
                 await asyncio.sleep(0.25)
                 tmdb_movies = movie_api.upcoming(region='IN')
@@ -529,8 +530,8 @@ async def fetch_upcoming_movies(genres):
                         movie_data = await fetch_movie_details(m, genre)
                         if not movie_data:
                             movie_data = await fetch_omdb_details(m.title, genre)
-                        if movie_data:
-                            movies.append(movie_data)
+                        if movie_data and movie_data['genre'] == GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', ''):
+                            genre_movies.append(movie_data)
             elif genre == 'korean':
                 await asyncio.sleep(0.25)
                 tmdb_shows = tv_api.on_the_air()
@@ -539,18 +540,18 @@ async def fetch_upcoming_movies(genres):
                         tv_data = await fetch_tv_details(s, genre)
                         if not tv_data:
                             tv_data = await fetch_omdb_details(s.name, genre)
-                        if tv_data:
-                            movies.append(tv_data)
+                        if tv_data and tv_data['genre'] == GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', ''):
+                            genre_movies.append(tv_data)
             elif genre == 'indian':
                 await asyncio.sleep(0.25)
-                tmdb_shows = tv_api.on_the_air(region='IN')
+                tmdb_shows = tv_api.on_the_air()
                 for s in tmdb_shows:
                     if s.origin_country and 'IN' in s.origin_country and s.first_air_date and int(s.first_air_date[:4]) >= 2020:
                         tv_data = await fetch_tv_details(s, genre)
                         if not tv_data:
                             tv_data = await fetch_omdb_details(s.name, genre)
-                        if tv_data:
-                            movies.append(tv_data)
+                        if tv_data and tv_data['genre'] == GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', ''):
+                            genre_movies.append(tv_data)
             elif genre == 'webseries':
                 await asyncio.sleep(0.25)
                 tmdb_shows = tv_api.popular()
@@ -559,8 +560,8 @@ async def fetch_upcoming_movies(genres):
                         tv_data = await fetch_tv_details(s, genre)
                         if not tv_data:
                             tv_data = await fetch_omdb_details(s.name, genre)
-                        if tv_data:
-                            movies.append(tv_data)
+                        if tv_data and tv_data['genre'] == GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', ''):
+                            genre_movies.append(tv_data)
             elif genre == 'anime':
                 await asyncio.sleep(0.25)
                 tmdb_shows = tv_api.popular()
@@ -569,23 +570,26 @@ async def fetch_upcoming_movies(genres):
                         tv_data = await fetch_tv_details(s, genre)
                         if not tv_data:
                             tv_data = await fetch_omdb_details(s.name, genre)
-                        if tv_data:
-                            movies.append(tv_data)
+                        if tv_data and tv_data['genre'] == GENRES[genre].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '').replace('🎞️ ', ''):
+                            genre_movies.append(tv_data)
+            
+            # Add only genre-specific movies
+            movies.extend(genre_movies)
         
         # Remove duplicates
         seen = set()
         unique_movies = []
         for movie in movies:
-            key = (movie['title'], movie['release_date'])
+            key = (movie['title'], movie['release_date'], movie['genre'])
             if key not in seen:
                 seen.add(key)
                 unique_movies.append(movie)
         
         # Store in MongoDB with unique index
-        movies_collection.create_index([('title', 1), ('release_date', 1)], unique=True)
+        movies_collection.create_index([('title', 1), ('release_date', 1), ('genre', 1)], unique=True)
         for movie in unique_movies:
             movies_collection.update_one(
-                {'title': movie['title'], 'release_date': movie['release_date']},
+                {'title': movie['title'], 'release_date': movie['release_date'], 'genre': movie['genre']},
                 {'$set': movie},
                 upsert=True
             )
@@ -760,7 +764,7 @@ async def notify_users(context):
                 movie['cast'] = omdb_data['cast']
                 movie['director'] = omdb_data['director']
                 movies_collection.update_one(
-                    {'title': movie['title'], 'release_date': movie['release_date']},
+                    {'title': movie['title'], 'release_date': movie['release_date'], 'genre': movie['genre']},
                     {'$set': movie},
                     upsert=True
                 )
