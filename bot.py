@@ -7,7 +7,6 @@ import requests
 from datetime import datetime, timedelta
 import asyncio
 import config
-import uuid
 
 # Initialize TMDb API
 tmdb = TMDb()
@@ -239,7 +238,9 @@ def main():
             GENRE: [CallbackQueryHandler(genre_selection)],
             CONFIRM: [CallbackQueryHandler(confirm_selection)]
         },
-        fallbacks=[]
+        fallbacks=[],
+        per_chat=True,
+        per_user=True
     )
     
     app.add_handler(conv_handler)
