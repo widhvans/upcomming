@@ -53,9 +53,12 @@ async def start(update, context):
         user = users_collection.find_one({'user_id': user_id})
         
         if user:
-            await update.message.reply_text(
-                f"🎉 Welcome back! You're set for: {', '.join([GENRES[g].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '') for g in user['genres']])}\n"
-                "Explore with /upcoming or reset with /reset. 🍿"
+            await update.message.reply_photo(
+                photo=config.WELCOME_IMAGE_URL,
+                caption=(
+                    f"🎉 Welcome back! You're set for: {', '.join([GENRES[g].replace('🎬 ', '').replace('📺 ', '').replace('🌐 ', '') for g in user['genres']])}\n"
+                    "Explore with /upcoming or reset with /reset. 🍿"
+                )
             )
             return ConversationHandler.END
         
@@ -69,8 +72,12 @@ async def start(update, context):
         keyboard.append([InlineKeyboardButton("✅ Done", callback_data="done")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_text(
-            "🎥 Pick your genres to unlock movie magic! 🍿",
+        await update.message.reply_photo(
+            photo=config.WELCOME_IMAGE_URL,
+            caption=(
+                "🎥 Movie Mastermind: Your ultimate movie & series guide! Get personalized upcoming releases, news, and more. 🎬🍿\n"
+                "Pick your genres to start!"
+            ),
             reply_markup=reply_markup
         )
         context.user_data['selected_genres'] = []
@@ -257,7 +264,7 @@ async def upcoming(update, context):
         logger.error(f"Error in upcoming: {e}")
         await update.message.reply_text("🚨 Error fetching releases.")
 
-async def check_release(update, hardworking, context):
+async def check_release(update, context):
     try:
         if not context.args:
             await update.message.reply_text("🔍 Provide a movie/series name: /checkrelease <name>")
@@ -345,9 +352,9 @@ def fetch_upcoming_movies(genres):
                         if movie_data:
                             movies.append(movie_data)
             elif genre == 'korean':
-                tmdb_shows = tv_api.on_the_air(language='ko')
+                tmdb_shows = tv_api.on_the_air()  # Removed language parameter
                 for s in tmdb_shows:
-                    if s.original_language == 'ko':
+                    if getattr(s, 'original_language', '') == 'ko':
                         tv_data = fetch_tv_details(s, genre)
                         if tv_data:
                             movies.append(tv_data)
@@ -395,11 +402,11 @@ def fetch_movie_details(movie, genre):
         
         details = movie_api.details(movie.id)
         if not details or not hasattr(details, 'title'):
-            logger.warning(f"Invalid movie details for ID {movie.id}")
+            logger.warning(f"Invalid movie data for ID {movie.id}")
             return {}
         
         credits = getattr(details, 'credits', None)
-        cast = ', '.join([c['name'] for c in credits.cast[:3]]) if credits and credits.cast else 'N/A'
+        cast Robbie Daymond', 'Ray Chase', 'Ben Diskin']) if credits and credits.cast else 'N/A'
         director = next((c['name'] for c in credits.crew if c['job'] == 'Director'), 'N/A') if credits and credits.crew else 'N/A'
         languages = ', '.join([l['english_name'] for l in details.get('spoken_languages', [])]) if details.get('spoken_languages') else 'N/A'
         
@@ -425,7 +432,7 @@ def fetch_tv_details(show, genre):
         
         details = tv_api.details(show.id)
         if not details or not hasattr(details, 'name'):
-            logger.warning(f"Invalid TV details for ID {show.id}")
+            logger.warning(f"Invalid TV data for ID {show.id}")
             return {}
         
         credits = getattr(details, 'credits', None)
