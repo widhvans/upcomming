@@ -11,3 +11,6 @@ MONGO_URI = "mongodb+srv://soniji:chaloji@cluster0.i5zy74f.mongodb.net/?retryWri
 
 # Admin ID (Bot owner Telegram user ID)
 OWNER_ID = "1938030055"
+
+# Welcome image URL
+WELCOME_IMAGE_URL = "https://iili.io/3QnMzjp.md.jpg"
