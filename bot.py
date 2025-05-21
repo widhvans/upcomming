@@ -4,9 +4,14 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Conv
 import pymongo
 from tmdbv3api import TMDb, Movie, TV
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 import asyncio
 import config
+import logging
+
+# Setup logging
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Initialize TMDb API
 tmdb = TMDb()
@@ -39,218 +44,259 @@ GENRES = {
 }
 
 async def start(update, context):
-    user_id = update.effective_user.id
-    user = users_collection.find_one({'user_id': user_id})
-    
-    if user:
-        await update.message.reply_text(
-            f"Welcome back! Your preferences: {', '.join(user['genres'])}\n"
-            "Use /upcoming to see upcoming releases or /reset to change preferences."
-        )
-        return ConversationHandler.END
-    
-    keyboard = [
-        [InlineKeyboardButton(GENRES[genre], callback_data=genre)] for genre in GENRES
-    ]
-    keyboard.append([InlineKeyboardButton("Done", callback_data="done")])
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(
-        "Welcome to the Movie Bot! Select your favorite genres (multiple allowed):",
-        reply_markup=reply_markup
-    )
-    context.user_data['selected_genres'] = []
-    return GENRE
-
-async def genre_selection(update, context):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    
-    if data == "done":
-        if not context.user_data['selected_genres']:
-            await query.message.reply_text("Please select at least one genre!")
-            return GENRE
+    try:
+        user_id = update.effective_user.id
+        user = users_collection.find_one({'user_id': user_id})
+        
+        if user:
+            await update.message.reply_text(
+                f"Welcome back! Your preferences: {', '.join(user['genres'])}\n"
+                "Use /upcoming to see upcoming releases or /reset to change preferences."
+            )
+            return ConversationHandler.END
+        
         keyboard = [
-            [InlineKeyboardButton("Confirm", callback_data="confirm")],
-            [InlineKeyboardButton("Cancel", callback_data="cancel")]
+            [InlineKeyboardButton(GENRES[genre], callback_data=genre)] for genre in GENRES
         ]
+        keyboard.append([InlineKeyboardButton("Done", callback_data="done")])
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.message.reply_text(
-            f"Selected genres: {', '.join([GENRES[g] for g in context.user_data['selected_genres']])}\nConfirm?",
+        
+        await update.message.reply_text(
+            "Welcome to the Movie Bot! Select your favorite genres (multiple allowed):",
             reply_markup=reply_markup
         )
-        return CONFIRM
-    
-    if data in context.user_data['selected_genres']:
-        context.user_data['selected_genres'].remove(data)
-    else:
-        context.user_data['selected_genres'].append(data)
-    
-    keyboard = [
-        [InlineKeyboardButton(
-            f"{GENRES[genre]} {'✅' if genre in context.user_data['selected_genres'] else ''}",
-            callback_data=genre
-        )] for genre in GENRES
-    ]
-    keyboard.append([InlineKeyboardButton("Done", callback_data="done")])
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.message.edit_reply_markup(reply_markup=reply_markup)
-    return GENRE
+        context.user_data['selected_genres'] = []
+        return GENRE
+    except Exception as e:
+        logger.error(f"Error in start: {e}")
+        await update.message.reply_text("An error occurred. Please try again.")
+        return ConversationHandler.END
+
+async def genre_selection(update, context):
+    try:
+        query = update.callback_query
+        await query.answer()
+        data = query.data
+        
+        if data == "done":
+            if not context.user_data['selected_genres']:
+                await query.message.reply_text("Please select at least one genre!")
+                return GENRE
+            keyboard = [
+                [InlineKeyboardButton("Confirm", callback_data="confirm")],
+                [InlineKeyboardButton("Cancel", callback_data="cancel")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.message.reply_text(
+                f"Selected genres: {', '.join([GENRES[g] for g in context.user_data['selected_genres']])}\nConfirm?",
+                reply_markup=reply_markup
+            )
+            return CONFIRM
+        
+        if data in context.user_data['selected_genres']:
+            context.user_data['selected_genres'].remove(data)
+        else:
+            context.user_data['selected_genres'].append(data)
+        
+        keyboard = [
+            [InlineKeyboardButton(
+                f"{GENRES[genre]} {'✅' if genre in context.user_data['selected_genres'] else ''}",
+                callback_data=genre
+            )] for genre in GENRES
+        ]
+        keyboard.append([InlineKeyboardButton("Done", callback_data="done")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.message.edit_reply_markup(reply_markup=reply_markup)
+        return GENRE
+    except Exception as e:
+        logger.error(f"Error in genre_selection: {e}")
+        await query.message.reply_text("An error occurred. Please try again.")
+        return GENRE
 
 async def confirm_selection(update, context):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-    
-    if data == "cancel":
+    try:
+        query = update.callback_query
+        await query.answer()
+        data = query.data
+        
+        if data == "cancel":
+            context.user_data['selected_genres'] = []
+            await query.message.reply_text("Selection cancelled. Use /start to try again.")
+            return ConversationHandler.END
+        
+        user_id = update.effective_user.id
+        users_collection.insert_one({
+            'user_id': user_id,
+            'genres': context.user_data['selected_genres'],
+            'created_at': datetime.now(UTC)
+        })
+        
+        await query.message.reply_text(
+            f"Preferences saved: {', '.join([GENRES[g] for g in context.user_data['selected_genres']])}\n"
+            "You'll get notifications for upcoming releases! Use /upcoming to see them now."
+        )
         context.user_data['selected_genres'] = []
-        await query.message.reply_text("Selection cancelled. Use /start to try again.")
         return ConversationHandler.END
-    
-    user_id = update.effective_user.id
-    users_collection.insert_one({
-        'user_id': user_id,
-        'genres': context.user_data['selected_genres'],
-        'created_at': datetime.utcnow()
-    })
-    
-    await query.message.reply_text(
-        f"Preferences saved: {', '.join([GENRES[g] for g in context.user_data['selected_genres']])}\n"
-        "You'll get notifications for upcoming releases! Use /upcoming to see them now."
-    )
-    context.user_data['selected_genres'] = []
-    return ConversationHandler.END
+    except Exception as e:
+        logger.error(f"Error in confirm_selection: {e}")
+        await query.message.reply_text("An error occurred. Please try again.")
+        return ConversationHandler.END
 
 async def reset(update, context):
-    user_id = update.effective_user.id
-    users_collection.delete_one({'user_id': user_id})
-    await update.message.reply_text("Preferences reset. Use /start to set new preferences.")
-    return ConversationHandler.END
+    try:
+        user_id = update.effective_user.id
+        users_collection.delete_one({'user_id': user_id})
+        await update.message.reply_text("Preferences reset. Use /start to set new preferences.")
+        return ConversationHandler.END
+    except Exception as e:
+        logger.error(f"Error in reset: {e}")
+        await update.message.reply_text("An error occurred. Please try again.")
+        return ConversationHandler.END
 
 async def upcoming(update, context):
-    user_id = update.effective_user.id
-    user = users_collection.find_one({'user_id': user_id})
-    
-    if not user:
-        await update.message.reply_text("Please set your preferences using /start.")
-        return
-    
-    genres = user['genres']
-    movies = fetch_upcoming_movies(genres)
-    
-    if not movies:
-        await update.message.reply_text("No upcoming releases found for your preferences.")
-        return
-    
-    for movie in movies[:5]:  # Limit to 5 for brevity
-        await update.message.reply_photo(
-            photo=movie['poster'],
-            caption=(
-                f"**{movie['title']}**\n"
-                f"Genre: {movie['genre']}\n"
-                f"Release: {movie['release_date']}\n"
-                f"Overview: {movie['overview'][:200]}...\n"
-                f"Context: {movie['context']}"
-            )
-        )
-
-def fetch_upcoming_movies(genres):
-    # Simplified mapping of bot genres to TMDb genres
-    genre_mapping = {
-        'bollywood': 18,  # Drama (common for Bollywood)
-        'hollywood': 28,  # Action (common for Hollywood)
-        'tamil': 18,
-        'tollywood': 18,
-        'gujarati': 18,
-        'marathi': 18,
-        'korean': 10764,  # Reality (proxy for Korean dramas)
-        'indian': 18,
-        'webseries': 10765  # Sci-Fi & Fantasy (proxy for web series)
-    }
-    
-    movies = []
-    for genre in genres:
-        # Fetch movies
-        tmdb_movies = movie_api.upcoming()
-        for m in tmdb_movies:
-            if genre_mapping.get(genre) in m.genre_ids:
-                movies.append({
-                    'title': m.title,
-                    'genre': GENRES[genre],
-                    'release_date': m.release_date,
-                    'overview': m.overview,
-                    'poster': f"https://image.tmdb.org/t/p/w500{m.poster_path}" if m.poster_path else "https://via.placeholder.com/500",
-                    'context': "Fetched from TMDb"
-                })
+    try:
+        user_id = update.effective_user.id
+        user = users_collection.find_one({'user_id': user_id})
         
-        # Fetch TV shows (for web series, Korean/Indian dramas)
-        tmdb_shows = tv_api.upcoming()
-        for s in tmdb_shows:
-            if genre_mapping.get(genre) in s.genre_ids:
-                movies.append({
-                    'title': s.name,
-                    'genre': GENRES[genre],
-                    'release_date': s.first_air_date,
-                    'overview': s.overview,
-                    'poster': f"https://image.tmdb.org/t/p/w500{s.poster_path}" if s.poster_path else "https://via.placeholder.com/500",
-                    'context': "Fetched from TMDb (TV)"
-                })
-    
-    # Store in MongoDB
-    for movie in movies:
-        movies_collection.update_one(
-            {'title': movie['title'], 'release_date': movie['release_date']},
-            {'$set': movie},
-            upsert=True
-        )
-    
-    return movies
-
-async def notify_users(context):
-    upcoming_movies = movies_collection.find({
-        'release_date': {
-            '$gte': datetime.utcnow().strftime('%Y-%m-%d'),
-            '$lte': (datetime.utcnow() + timedelta(days=7)).strftime('%Y-%m-%d')
-        }
-    })
-    
-    for movie in upcoming_movies:
-        for user in users_collection.find({'genres': movie['genre'].lower()}):
-            await context.bot.send_photo(
-                chat_id=user['user_id'],
+        if not user:
+            await update.message.reply_text("Please set your preferences using /start.")
+            return
+        
+        genres = user['genres']
+        movies = fetch_upcoming_movies(genres)
+        
+        if not movies:
+            await update.message.reply_text("No upcoming releases found for your preferences.")
+            return
+        
+        for movie in movies[:5]:  # Limit to 5 for brevity
+            await update.message.reply_photo(
                 photo=movie['poster'],
                 caption=(
-                    f"Upcoming: **{movie['title']}**\n"
+                    f"**{movie['title']}**\n"
                     f"Genre: {movie['genre']}\n"
                     f"Release: {movie['release_date']}\n"
-                    f"Overview: {movie['overview'][:200]}..."
+                    f"Overview: {movie['overview'][:200]}...\n"
+                    f"Context: {movie['context']}"
                 )
             )
+    except Exception as e:
+        logger.error(f"Error in upcoming: {e}")
+        await update.message.reply_text("An error occurred while fetching upcoming releases.")
+        return
+
+def fetch_upcoming_movies(genres):
+    try:
+        # Simplified mapping of bot genres to TMDb genres
+        genre_mapping = {
+            'bollywood': 18,  # Drama (common for Bollywood)
+            'hollywood': 28,  # Action (common for Hollywood)
+            'tamil': 18,
+            'tollywood': 18,
+            'gujarati': 18,
+            'marathi': 18,
+            'korean': 10764,  # Reality (proxy for Korean dramas)
+            'indian': 18,
+            'webseries': 10765  # Sci-Fi & Fantasy (proxy for web series)
+        }
+        
+        movies = []
+        for genre in genres:
+            # Fetch movies
+            tmdb_movies = movie_api.upcoming()
+            for m in tmdb_movies:
+                if genre_mapping.get(genre) in m.genre_ids:
+                    movies.append({
+                        'title': m.title,
+                        'genre': GENRES[genre],
+                        'release_date': m.release_date,
+                        'overview': m.overview,
+                        'poster': f"https://image.tmdb.org/t/p/w500{m.poster_path}" if m.poster_path else "https://via.placeholder.com/500",
+                        'context': "Fetched from TMDb"
+                    })
+            
+            # Fetch TV shows (for web series, Korean/Indian dramas)
+            tmdb_shows = tv_api.on_the_air()
+            for s in tmdb_shows:
+                if genre_mapping.get(genre) in s.genre_ids:
+                    movies.append({
+                        'title': s.name,
+                        'genre': GENRES[genre],
+                        'release_date': s.first_air_date,
+                        'overview': s.overview,
+                        'poster': f"https://image.tmdb.org/t/p/w500{s.poster_path}" if s.poster_path else "https://via.placeholder.com/500",
+                        'context': "Fetched from TMDb (TV)"
+                    })
+        
+        # Store in MongoDB
+        for movie in movies:
+            movies_collection.update_one(
+                {'title': movie['title'], 'release_date': movie['release_date']},
+                {'$set': movie},
+                upsert=True
+            )
+        
+        return movies
+    except Exception as e:
+        logger.error(f"Error in fetch_upcoming_movies: {e}")
+        return []
+
+async def notify_users(context):
+    try:
+        upcoming_movies = movies_collection.find({
+            'release_date': {
+                '$gte': datetime.now(UTC).strftime('%Y-%m-%d'),
+                '$lte': (datetime.now(UTC) + timedelta(days=7)).strftime('%Y-%m-%d')
+            }
+        })
+        
+        for movie in upcoming_movies:
+            for user in users_collection.find({'genres': movie['genre'].lower()}):
+                await context.bot.send_photo(
+                    chat_id=user['user_id'],
+                    photo=movie['poster'],
+                    caption=(
+                        f"Upcoming: **{movie['title']}**\n"
+                        f"Genre: {movie['genre']}\n"
+                        f"Release: {movie['release_date']}\n"
+                        f"Overview: {movie['overview'][:200]}..."
+                    )
+                )
+    except Exception as e:
+        logger.error(f"Error in notify_users: {e}")
+
+async def error_handler(update, context):
+    logger.error(f"Update {update} caused error {context.error}")
+    if update and update.message:
+        await update.message.reply_text("An error occurred. Please try again later.")
 
 def main():
-    app = Application.builder().token(config.TELEGRAM_TOKEN).build()
-    
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', start)],
-        states={
-            GENRE: [CallbackQueryHandler(genre_selection)],
-            CONFIRM: [CallbackQueryHandler(confirm_selection)]
-        },
-        fallbacks=[],
-        per_chat=True,
-        per_user=True
-    )
-    
-    app.add_handler(conv_handler)
-    app.add_handler(CommandHandler('upcoming', upcoming))
-    app.add_handler(CommandHandler('reset', reset))
-    
-    # Schedule notifications
-    app.job_queue.run_repeating(notify_users, interval=86400, first=10)
-    
-    app.run_polling()
+    try:
+        app = Application.builder().token(config.TELEGRAM_TOKEN).build()
+        
+        conv_handler = ConversationHandler(
+            entry_points=[CommandHandler('start', start)],
+            states={
+                GENRE: [CallbackQueryHandler(genre_selection)],
+                CONFIRM: [CallbackQueryHandler(confirm_selection)]
+            },
+            fallbacks=[],
+            per_chat=True,
+            per_user=True
+        )
+        
+        app.add_handler(conv_handler)
+        app.add_handler(CommandHandler('upcoming', upcoming))
+        app.add_handler(CommandHandler('reset', reset))
+        app.add_error_handler(error_handler)
+        
+        # Schedule notifications
+        app.job_queue.run_repeating(notify_users, interval=86400, first=10)
+        
+        app.run_polling()
+    except Exception as e:
+        logger.error(f"Error in main: {e}")
 
 if __name__ == '__main__':
     main()
